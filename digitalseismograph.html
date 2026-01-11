@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Interactive Global Seismic Map</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- Leaflet CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<style>
+  body { margin:0; padding:0; font-family: Arial; }
+  #map { width: 100%; height: 100vh; }
+  .popup-graph { width: 400px; height: 200px; }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+  // Initialize map
+  var map = L.map('map').setView([20,0],2);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    maxZoom:10,
+    attribution:'© OpenStreetMap'
+  }).addTo(map);
+
+  var quakeData = [];
+
+  // Fetch live earthquake data (last hour)
+  fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson')
+  .then(response => response.json())
+  .then(data => {
+      quakeData = data.features;
+
+      // Plot earthquake markers
+      quakeData.forEach(q => {
+          let mag = q.properties.mag;
+          if(mag===null) return;
+          let coords = q.geometry.coordinates;
+          let lon = coords[0], lat = coords[1];
+
+          let color = mag>=5 ? "red" : "orange"; // highlight big quakes
+
+          let marker = L.circleMarker([lat, lon], {
+              radius:6,
+              fillColor:color,
+              color:color,
+              weight:1,
+              fillOpacity:0.8
+          }).addTo(map);
+
+          marker.on('click', ()=> showWaveform(mag));
+      });
+  })
+  .catch(err => console.error("Error fetching USGS data:", err));
+
+  // Function to show waveform on click
+  function showWaveform(mag=null){
+      let message = mag && mag>0 ? "Magnitude: "+mag.toFixed(1) : "No earthquake";
+
+      var popup = L.popup()
+        .setLatLng(map.getCenter())
+        .setContent('<div style="width:420px; height:220px;"><canvas id="waveform" class="popup-graph"></canvas><div>'+message+'</div></div>')
+        .openOn(map);
+
+      // Delay Chart.js initialization to ensure canvas is rendered
+      setTimeout(()=>{
+          var ctx = document.getElementById('waveform').getContext('2d');
+
+          var dataPoints = [];
+          var labels = [];
+          var t = 0;
+
+          var chart = new Chart(ctx, {
+            type:'line',
+            data:{
+              labels: labels,
+              datasets:[{
+                label:'Seismic Wave',
+                data:dataPoints,
+                borderColor:'lime',
+                borderWidth:1,
+                pointRadius:0,
+                fill:false
+              }]
+            },
+            options:{
+              responsive:false,
+              animation:false,
+              scales:{
+                x:{ type:'linear', title:{display:true,text:'Time (s)'} },
+                y:{ title:{display:true,text:'Amplitude'} }
+              }
+            }
+          });
+
+          var interval = setInterval(()=>{
+              t += 0.1; 
+              labels.push(t.toFixed(1));
+
+              // Stable zero waveform if no earthquake
+              let amp = (mag && mag>0) ? Math.sin(t*2*Math.PI) * mag*5 + (Math.random()*mag*2) : 0;
+              dataPoints.push(amp);
+
+              chart.update();
+
+              if(labels.length>100){
+                  labels.shift();
+                  dataPoints.shift();
+              }
+          },100);
+
+          popup.on('remove', ()=> clearInterval(interval));
+
+      }, 200); // 200ms delay
+  }
+
+  // Make entire map clickable
+  map.on('click', function(e){
+      // Check if click is near a real earthquake (0.5° radius)
+      let nearest = quakeData.find(q => {
+          let coords = q.geometry.coordinates;
+          let lat = coords[1], lon = coords[0];
+          return Math.abs(lat - e.latlng.lat) < 0.5 && Math.abs(lon - e.latlng.lng) < 0.5;
+      });
+      if(nearest){
+          let mag = nearest.properties.mag || 1;
+          showWaveform(mag);
+      } else {
+          showWaveform(0); // No earthquake
+      }
+  });
+
+</script>
+</body>
+</html>
