@@ -26,4 +26,5 @@ Users can click on any location to view seismic activity and waveform-style grap
 This project was created for a school science fair to demonstrate real-time seismology and tectonic activity.
 
 ## 👤 Author
+
 S.Bhattacharya
